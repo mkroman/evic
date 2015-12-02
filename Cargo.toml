@@ -1,0 +1,10 @@
+[package]
+name = "evic"
+version = "0.1.0"
+authors = ["Mikkel Kroman <mk@maero.dk>"]
+
+[[bin]]
+name = "evicutil"
+
+[dependencies]
+
