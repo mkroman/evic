@@ -1,10 +1,14 @@
 [package]
+authors = ["Mikkel Kroman <mk@maero.dk>"]
 name = "evic"
 version = "0.1.0"
-authors = ["Mikkel Kroman <mk@maero.dk>"]
 
 [[bin]]
 name = "evicutil"
 
 [dependencies]
+getopts = "0.2.14"
 
+[dependencies.clippy]
+optional = true
+version = "*"
