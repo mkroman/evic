@@ -23,11 +23,14 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::fs::File;
-use std::io::{Read, Write, Seek, Error, ErrorKind, SeekFrom};
+use std::io::{Read, Write, Seek, SeekFrom};
+use super::Result;
+use super::error::Error;
 
 /// The capacity of the ROM in the eVic VTC Mini.
 pub const EVIC_MINI_ROM_SIZE: usize = 120 * 1024;
 
+#[derive(Debug)]
 pub struct Firmware {
     buffer: Vec<u8>,
 }
@@ -52,25 +55,18 @@ impl Firmware {
     /// let buffer = [0; 1024]; // Pretend this is a buffer holding encrypted firmware.
     /// let firmware = Firmware::decrypt(&mut Cursor::new(buffer.as_ref())).unwrap();
     /// ```
-    pub fn decrypt<R: Read + Seek + ?Sized>(reader: &mut R) -> Result<Firmware, Error> {
+    pub fn decrypt<R: Read + Seek + ?Sized>(reader: &mut R) -> Result<Firmware> {
         let mut firmware = Firmware::new();
 
         // Attempt to get the size so we can check whether it exceeds the capacity of the device.
-        let size: u64 = match reader.seek(SeekFrom::End(0)) {
-            Ok(size) => {
-                if size > (EVIC_MINI_ROM_SIZE as u64) {
-                    return Err(Error::new(ErrorKind::Other,
-                                          "the firmware file exceeds the devices ROM capacity"));
-                }
+        let size = try!(reader.seek(SeekFrom::End(0)));
 
-                size
-            },
-            Err(error) => return Err(error)
-        };
+        if size > EVIC_MINI_ROM_SIZE as u64 {
+            return Err(Error::Firmware(format!("the firmware image exceeds the devices ROM capacity")));
+        }
 
         // Go back to the beginning of the buffer before we read it.
-        reader.seek(SeekFrom::Start(0)).unwrap();
-
+        try!(reader.seek(SeekFrom::Start(0)));
         try!(reader.read_to_end(&mut firmware.buffer));
 
         // Decrypt the firmware.
@@ -82,7 +78,7 @@ impl Firmware {
     }
 
     /// Writes the contents of the firmware buffer to the provided writer.
-    pub fn save<W: Write + ?Sized>(&self, writer: &mut W) -> Result<(), Error> {
+    pub fn save<W: Write + ?Sized>(&self, writer: &mut W) -> Result<()> {
         try!(writer.write_all(&self.buffer[..]));
 
         Ok(())
@@ -90,7 +86,7 @@ impl Firmware {
 }
 
 /// Loads a firmware file from the specified path and decrypts it in memory.
-pub fn load(path: &str) -> Result<Firmware, Error> {
+pub fn load(path: &str) -> Result<Firmware> {
     let mut file = try!(File::open(path));
     let firmware = try!(Firmware::decrypt(&mut file));
 
