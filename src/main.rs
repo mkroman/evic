@@ -26,67 +26,65 @@ extern crate getopts;
 
 use std::fs;
 use std::env;
-use std::path::Path;
-use std::error::Error;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use getopts::Options;
-use evic::firmware;
+use evic::Result;
+use evic::firmware::Firmware;
 
 const NAME: &'static str = "evicutil";
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-fn print_usage(program: &str, options: &Options) {
-    let brief = format!("Usage: {} [OPTIONS] COMMAND [arg...]", program);
+enum Mode {
+    Encrypt,
+    Decrypt,
+    Version,
+    Help,
+}
 
-    print!("{}", options.usage(&brief));
+fn print_usage(usage: &str) {
+    print!("{}", usage);
 }
 
 fn print_version() {
     println!("{} {}", NAME, VERSION);
 }
 
-fn validate_input_file<'a, P: AsRef<Path>>(path: P) -> Result<(), &'static str> {
-    let path = path.as_ref();
+// Take a provided input path and return a suffixed, if necessary, output path.
+//
+// When the input path is None, it will return a path where the filename is suffixed with
+// `suffix`.
+fn suffixed_file_path<P>(path: P, suffix: &str) -> PathBuf
+    where P: AsRef<Path> {
+    let mut buf = path.as_ref().to_path_buf();
+    let mut file_name = OsString::from(buf.file_stem().unwrap_or("firmware".as_ref()));
 
-    if path.exists() && path.is_file() {
-        return Err("The specified path does not exist");
-    }
+    file_name.push(suffix);
+    file_name.push(".");
+    file_name.push(buf.extension().unwrap_or("bin".as_ref()));
 
-    let metadata = match path.metadata() {
-        Ok(metadata) => metadata,
-        Err(error) => return Err(&error.to_string())
-    };
-
-    let size = metadata.len();
-
-    if size > 0 && size < firmware::EVIC_MINI_ROM_SIZE as u64 {
-        Ok(())
-    } else {
-        Err("The input file doesn't fit the criteria of a firmware file")
-    }
+    buf.set_file_name(file_name);
+    buf
 }
 
-fn encrypt(args: &Vec<String>, options: &Options) {
-    let filename = args.get(1);
-    
+fn encrypt<P: AsRef<Path>, T: AsRef<Path>>(path: P, output_path: T) -> Result<()> {
+   let mut file = try!(fs::File::open(path.as_ref()));
+   let firmware = try!(Firmware::decrypt(&mut file));
+   let mut output_file = try!(fs::File::create(output_path.as_ref()));
+
+   firmware.save(&mut output_file).unwrap();
+
+   Ok(())
 }
 
-fn decrypt(args: &Vec<String>, options: &Options) {
-   let filename = match args.get(1) {
-        Some(filename) => filename,
-        None => {
-            print_usage(NAME, options);
-            return;
-        }
-    };
+fn decrypt<P: AsRef<Path>, T: AsRef<Path>>(path: P, output_path: T) -> Result<()> {
+   let mut file = try!(fs::File::open(path.as_ref()));
+   let firmware = try!(Firmware::decrypt(&mut file));
+   let mut output_file = try!(fs::File::create(output_path.as_ref()));
 
-   match validate_input_file(&filename) {
-       Ok(()) => {
-           println!("Decrypting {}", filename);
-       },
-       Err(error) => {
-           println!("{}", error);
-       }
-   }
+   firmware.save(&mut output_file).unwrap();
+
+   Ok(())
 }
 
 fn main() {
@@ -98,31 +96,81 @@ fn main() {
     options.optflag("h", "help", "print this help menu");
     options.optflag("v", "version", "output version information and exit");
 
-    let matches = match options.parse(&args[1..]) {
-        Ok(matches) => matches,
-        Err(error) => panic!(error.to_string())
+    let matches = options.parse(&args[1..]).unwrap();
+
+    let mode = if matches.opt_present("h") {
+        Mode::Help
+    } else if matches.opt_present("v") {
+        Mode::Version
+    } else if let Some(command) = matches.free.get(0) {
+        if command == "encrypt" {
+            Mode::Encrypt
+        } else if command == "decrypt" {
+            Mode::Decrypt
+        } else {
+            println!("Unknown command `{}'", command);
+            Mode::Help
+        }
+    } else {
+        Mode::Help
     };
 
-    if matches.opt_present("h") {
-        print_usage(&program, &options);
-        return;
-    }
+    match mode {
+        Mode::Encrypt => {
+            if let Some(ref path) = matches.free.get(1) {
+                let output_path = match matches.opt_str("o") {
+                    Some(ref path) => PathBuf::from(path),
+                    None => suffixed_file_path(path, "_encrypted")
+                };
 
-    if matches.opt_present("v") {
-        print_version();
-        return; 
-    }
-
-    match matches.free.get(0) {
-        Some(x) if x == "encrypt" => encrypt(&matches.free, &options),
-        Some(x) if x == "decrypt" => decrypt(&matches.free, &options),
-        Some(x) => {
-            println!("Unknown command `{}'", x);
+                encrypt(path, &output_path).unwrap();
+            } else {
+                println!("Please supply a file path.");
+            }
         },
-        None => {
-            print_usage(&program, &options);
+        Mode::Decrypt => {
+            if let Some(ref path) = matches.free.get(1) {
+                let output_path = match matches.opt_str("o") {
+                    Some(ref path) => PathBuf::from(path),
+                    None => suffixed_file_path(path, "_decrypted")
+                };
+
+                decrypt(path, &output_path).unwrap();
+            } else {
+                println!("Please supply a file path.");
+            }
+        },
+        Mode::Version => {
+            print_version();
+        }
+        Mode::Help => {
+            let brief = format!("Usage: {} [OPTIONS] COMMAND [arg...]", program);
+            let usage = options.usage(&brief);
+
+            print_usage(&usage);
         }
     }
+}
 
-    return;
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_should_give_suffixed_output_path() {
+        use std::path::Path;
+
+        let path = Path::new("test.bin");
+        let output_path = super::suffixed_file_path(path, "_decrypted");
+
+        assert_eq!(Path::new("test_decrypted.bin"), output_path.as_path());
+    }
+
+    #[test]
+    fn it_should_give_suffixed_output_path_despite_no_extension() {
+        use std::path::Path;
+
+        let path = Path::new("test");
+        let output_path = super::suffixed_file_path(path, "_decrypted");
+
+        assert_eq!(Path::new("test_decrypted.bin"), output_path.as_path());
+    }
 }

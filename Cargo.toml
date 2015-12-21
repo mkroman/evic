@@ -6,9 +6,9 @@ version = "0.1.0"
 [[bin]]
 name = "evicutil"
 
+[lib]
+name = "evic"
+
 [dependencies]
 getopts = "0.2.14"
-
-[dependencies.clippy]
-optional = true
-version = "*"
+clippy = { version = "*", optional = true }
