@@ -1,7 +1,12 @@
 [package]
 authors = ["Mikkel Kroman <mk@maero.dk>"]
 name = "evic"
-version = "0.1.0"
+version = "0.1.1"
+license = "MIT/Apache-2.0"
+keywords = ["evic", "firmware"]
+homepage = "https://github.com/mkroman/evic"
+repository = "https://github.com/mkroman/evic"
+description = "Command-line utility for encrypting and decrypting firmware for the eVic-VTC Mini."
 
 [[bin]]
 name = "evicutil"
@@ -12,3 +17,4 @@ name = "evic"
 [dependencies]
 getopts = "0.2.14"
 clippy = { version = "*", optional = true }
+
